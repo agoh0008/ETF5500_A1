@@ -1,0 +1,29 @@
+\contentsline {section}{\numberline {1}Introduction}{3}{section.1}%
+\contentsline {section}{\numberline {2}Preliminary Analysis}{3}{section.2}%
+\contentsline {subsection}{\numberline {2.1}Data}{3}{subsection.2.1}%
+\contentsline {subsection}{\numberline {2.2}Exploratory Data Analysis}{3}{subsection.2.2}%
+\contentsline {section}{\numberline {3}Analysis}{5}{section.3}%
+\contentsline {subsection}{\numberline {3.1}Assumptions}{5}{subsection.3.1}%
+\contentsline {subsection}{\numberline {3.2}Cluster Analysis}{6}{subsection.3.2}%
+\contentsline {subsubsection}{\numberline {3.2.1}Period 1}{6}{subsubsection.3.2.1}%
+\contentsline {subsubsection}{\numberline {3.2.2}Period 2}{7}{subsubsection.3.2.2}%
+\contentsline {subsection}{\numberline {3.3}Multidimensional Scaling (MDS)}{9}{subsection.3.3}%
+\contentsline {subsubsection}{\numberline {3.3.1}Period 1}{9}{subsubsection.3.3.1}%
+\contentsline {subsubsection}{\numberline {3.3.2}Period 2}{10}{subsubsection.3.3.2}%
+\contentsline {subsection}{\numberline {3.4}Principal Component Analysis (PCA)}{11}{subsection.3.4}%
+\contentsline {subsubsection}{\numberline {3.4.1}Period 1}{11}{subsubsection.3.4.1}%
+\contentsline {paragraph}{\numberline {3.4.1.1}Kaiser's rule}{11}{paragraph.3.4.1.1}%
+\contentsline {paragraph}{\numberline {3.4.1.2}Distance bi-plot \(\\\)}{11}{paragraph.3.4.1.2}%
+\contentsline {paragraph}{\numberline {3.4.1.3}Correlation bi-plot}{12}{paragraph.3.4.1.3}%
+\contentsline {subsubsection}{\numberline {3.4.2}Period 2}{14}{subsubsection.3.4.2}%
+\contentsline {paragraph}{\numberline {3.4.2.1}Kaiser's rule}{14}{paragraph.3.4.2.1}%
+\contentsline {paragraph}{\numberline {3.4.2.2}Distance bi-plot \(\\\)}{14}{paragraph.3.4.2.2}%
+\contentsline {paragraph}{\numberline {3.4.2.3}Correlation bi-plot}{15}{paragraph.3.4.2.3}%
+\contentsline {section}{\numberline {4}Limitations}{16}{section.4}%
+\contentsline {section}{\numberline {5}Conclusion}{17}{section.5}%
+\contentsline {section}{\numberline {6}Appendix}{18}{section.6}%
+\contentsline {subsection}{\numberline {6.1}Appendix 1: Analysis}{18}{subsection.6.1}%
+\contentsline {subsubsection}{\numberline {6.1.1}Cluster Analysis}{18}{subsubsection.6.1.1}%
+\contentsline {subsubsection}{\numberline {6.1.2}MDS}{18}{subsubsection.6.1.2}%
+\contentsline {subsubsection}{\numberline {6.1.3}PCA}{19}{subsubsection.6.1.3}%
+\contentsline {subsection}{\numberline {6.2}Appendix 2: Code}{21}{subsection.6.2}%

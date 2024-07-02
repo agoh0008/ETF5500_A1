@@ -1,0 +1,1049 @@
+---
+title: Principal Component Analysis on U.S. Gini Index\newline Group 10 - Assignment 2
+author:
+- familyname: Goh
+  othernames: Alexandra
+  qualifications: agoh0008@student.monash.edu
+- familyname: Ginting
+  othernames: Evan
+  qualifications: egin0003@student.monash.edu
+- familyname: Pham
+  othernames: Huyen-Anh
+  qualifications: hpha0042@student.monash.edu
+- familyname: Lim
+  othernames: Pei Ni 
+  qualifications: plim0015@student.monash.edu
+email: 
+phone: 
+department: Department of\newline Econometrics &\newline Business Statistics
+organization: ETF5500 High Dimensional Data Analysis 
+bibliography: references.bib
+biblio-style: authoryear-comp
+linestretch: 1.2
+output:
+  monash::report:
+    fig_caption: yes
+    fig_height: 5
+    fig_width: 9
+    fig_align: center
+    includes:
+      in_header: preamble.tex
+    keep_tex: yes
+    number_sections: yes
+    citation_package: biblatex
+    toc: true
+header-include:
+  \usepackage{float}
+  \floatplacement{figure}{H}
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(eval = TRUE, echo = FALSE, cache = TRUE, message = FALSE, warning = FALSE) # Library
+library(tidyverse)
+library(bookdown)
+library(knitr)
+library(usmap)
+library(broom)
+library(statebins) 
+library(kableExtra)
+library(magrittr)
+library(tidyr)
+library(plotly)
+library(widgetframe)
+library(animation)
+library(scatterplot3d)
+library(DT)
+library(rgl)
+library(ggfortify)
+library(maps)
+library(ggbreak)
+library(gridExtra)
+library(factoextra)
+library(mclust)
+library(dplyr)
+library(viridis)
+library(patchwork)
+theme_set(theme_bw())
+```
+
+\newpage
+
+# Introduction
+
+This report examines the Gini Index, a vital measure of income inequality, across all 52 U.S. states, as documented by @FF10. Our analysis investigates two significant historical periods: the era of the Great Depression and World War II (WWII) (1928 - 1945) and the aftermath of the Global Financial Crisis (GFC) (2007 – 2015). The report’s objective is to understand how these historical events influenced income inequality trends among the states.  
+The first section includes data cleaning, summarising, and data visualisation. The second part focuses on Principal Component Analysis (PCA) as the primary dimensionality reduction method, with the addition of cluster analysis and Multidimensional Scaling (MDS).  
+  
+# Preliminary Analysis
+
+## Data    
+
+Our processed dataset comprises of three variables: 'State name', 'Year', and the 'Gini Index'. According to the @USC21, the Gini Index operates within a value range of 0 to 1, where 0 implies a state of perfect income equality, while 1 indicates perfect income inequality. To facilitate a rigorous comparative analysis of individual states, we deliberately excluded observations pertaining to the mean Gini Index of the "United States" in our dimension reduction procedures.  
+
+Within our dataset, a distinctive outlier value emerged in the Gini Index for Oregon in 1934, and we encountered a total of 10 missing values in the year 2010. In addressing these data gaps, we navigated through various missing values handling techniques, such as mean imputation and deletion. However, we opted for a more strategic approach by substituting the missing values with accurate data sourced from @Update1715 - the research website, thereby preserving the integrity of the dataset to the greatest extent possible.
+
+```{r}
+# DATA CLEANING ------------------------------------
+# Get Data
+gd <- read_csv(here::here("data/Inequality_GD.csv"))
+gr <- read_csv(here::here("data/Inequality_GR.csv"))
+
+# Bind two raw datasets
+gini <- rbind(
+  gd %>%  dplyr::select(-"...1") %>% 
+    pivot_longer(-State, names_to = "year", values_to = "gini"),
+  gr %>% dplyr::select(-"...1")%>% 
+    pivot_longer(-State, names_to = "year", values_to = "gini")  
+) %>% 
+  rename("state_name" = "State") %>% 
+  mutate(year = as.numeric(year))
+
+# Add state abbreviation
+state <- tibble(state_name = c(unique(gini$state_name)))
+state_abb <- data.frame(state_name = state.name, state = state.abb)
+state <- left_join(state, state_abb, by = c("state_name" = "state_name")) 
+state <- state %>% 
+  mutate(state = case_when(
+    state_name == "United States" ~ "US",
+    state_name == "District of Columbia" ~ "DC",
+    TRUE ~ state))
+gini <- left_join(gini, state, by = c("state_name" = "state_name"))
+
+# Get updated dataset from research website
+updated <- read_csv(here::here("data/Frank_Gini_2018.csv")) %>% 
+  dplyr::select(State,Year,Gini) %>% 
+  rename_all(tolower) %>% 
+  rename(state_name = state, gini_updated = gini) 
+
+# Handle Outlier and Missing Values
+gini <- gini %>% 
+  left_join(., updated, by = c("year"="year","state_name"="state_name")) %>% 
+  mutate(gini = case_when(
+    state_name=="Oregon" & year==1934 ~ gini_updated, # Outlier
+    is.na(gini) ~ gini_updated,                       # Missing Values
+    TRUE ~ gini)) %>% 
+  dplyr::select(1:4)
+
+# DATA WRANGLING ------------------------------------
+## Subset data
+gini1 <- gini %>%
+  select(state_name, state, year, gini) %>%
+  filter(year %in% 1929:1945,
+         state_name != "United States")
+gini2 <- gini %>%
+  select(state_name, state, year, gini) %>%
+  filter(year %in% 2007:2015,
+         state_name != "United States")
+
+## Transforming the table into wide format
+gini_period1 <- gini %>%
+  select(state_name, state, year, gini) %>%
+  filter(year %in% 1929:1945,
+         state_name != "United States") %>%
+  pivot_wider(names_from = year,
+              values_from = gini)
+
+gini_period2 <- gini %>%
+  select(state_name, state, year, gini) %>%
+  filter(year %in% 2007:2015,
+         state_name != "United States") %>%
+  pivot_wider(names_from = year,
+              values_from = gini)
+
+# Assigning first column as the rownames (for visual purpose)
+rownames(gini_period1) <- gini_period1$state_name
+rownames(gini_period2) <- gini_period2$state_name
+```
+
+
+## Exploratory Data Analysis   
+
+```{r edaboxplot, fig.height = 3.6, fig.cap = "Distribution of Gini Index over the year"}
+# Box Plot
+gini %>% 
+  filter(state != "US") %>%  
+  ggplot(aes(x = year)) + 
+  geom_boxplot(aes(y = gini, group = year)) +
+  geom_line(data = gini %>% filter(state == "US"), 
+            aes(y = gini, group = 1), 
+            color = "darkred", size = 1.2, alpha = 0.4) +
+  scale_x_break(c(1945,2007)) + 
+  theme(axis.title = element_text(size = 8), 
+        legend.position = "top") +
+  theme_light() +
+  labs(x = "Year", y = "Gini Index") 
+```
+  
+Figure \ref{fig:edaboxplot} illustrates the distribution of the Gini Index over the years (boxplots), accompanied by a comparison to the U.S.'s average Gini Index (red line). Our plot reveals an apparent decreasing trend in Gini Index during the initial period from 1929 to 1945, while there is a sustained presence of relatively high Gini Index levels during the subsequent period.
+
+The boxplot also provides insights into the distribution characteristics of each year. The distributions display a degree of symmetry, accompanied by a slight right-skewness as the mean is marginally larger than the median in certain years. We observe that during the Great Depression and WWII, the variance of the Gini Index experiences a significant reduction, while it remains rather stable across the GFC period.
+
+```{r edamap, fig.cap="Gini Index across U.S. states over time"}
+df <- gini %>% 
+  select(state, year, gini) %>% filter(state != "US") %>% 
+  mutate(gini_cut = cut(gini,breaks = c(0.1,0.2,0.3,0.4,0.5,0.6,0.7,0.8,0.9)))
+
+# Map Plot: Gini Index across states over time 
+plot_usmap(data = df, values = "gini_cut", color = "grey90") + 
+  scale_fill_brewer(palette = "Reds", drop = FALSE, name = "Gini Index") + 
+  theme(legend.position = "bottom", aspect.ratio = 5.5/9) + 
+  facet_wrap(~year, ncol=7) + 
+  guides(fill=guide_legend(nrow = 1)) +
+  labs(subtitle = "Increasing income inequality")
+```
+
+Figure \ref{fig:edamap} visually illustrates the link between geographic location and income inequality across U.S. states. Initially, North-Eastern metropolitan states like New York, Massachusetts, Connecticut, Delaware, and Florida consistently displayed higher income inequality. Factors contributing to this include their status as economic hubs, especially in the finance sector, which offers high-paying jobs that contribute to income disparities. Additionally, the high cost of living exacerbates income gaps, particularly for lower-income individuals. Significant migration patterns involving both high and low-skilled workers further contribute to income disparities. In the subsequent period, income inequality variance among states reduced, coinciding with a nationwide worsening of income inequality. Nevertheless, New York and Florida remained notable for higher income inequality.
+
+\newpage
+# Analysis  
+
+## Assumptions  
+
+There are some assumptions that we employ when performing the analysis:  
+
+- We did not scale the data since the Gini Index already has consistent units of measurement.
+- The Euclidean method was used to calculate distances, capturing differences in Gini index values.
+- Hierarchical clustering was chosen due to the lack of prior data characteristics, allowing us to determine the appropriate cluster number during analysis.
+- The D2.Ward method was employed to minimise within-cluster variance and create compact clusters, with later assessments of its robustness and comparison with alternative methods.
+- We reduced dimensions to two in MDS for enhanced interpretability and visualization.
+
+
+\newpage
+## Cluster Analysis    
+### Period 1  
+
+```{r clust-1-dendrogram, fig.align='center',fig.cap="Cluster Analysis of the 1st Period (1929 - 1945)"}
+# Developing the cluster
+## Calculating the distance matrix using euclidean distance
+gini_clust_d1 <- gini_period1 %>%
+  dist(method = 'euclidean')
+                  
+## Hierarchical clustering with ward's method (squared distances) 
+gini_clust_v1 <- hclust(gini_clust_d1, method = "ward.D2")
+
+# Plotting the Cluster
+plot(gini_clust_v1, cex = 0.8)
+rect.hclust(gini_clust_v1, k = 5, border = "red")
+```
+
+From Figure \ref{fig:clust-1-dendrogram}, a stable solution with five clusters is observed within a tolerance range of 0.35 to 0.44. This configuration provides adequate grouping without sacrificing the detail within each cluster.  
+
+```{r}
+# Store Ward.D2 cluster membership in a new variable.
+gini_v1_ward <- cutree(gini_clust_v1, k = 5)
+
+# Other cluster methods
+gini_v1_al <- hclust(gini_clust_d1, method = 'average') %>% cutree(k = 5)   
+gini_v1_cm <- hclust(gini_clust_d1, method = 'centroid') %>% cutree(k = 5)   
+gini_v1_cl <- hclust(gini_clust_d1, method = 'complete') %>% cutree(k = 5) 
+```
+
+```{r}
+# Map cluster membership to dataset
+gini_period1 <- gini_period1 %>% mutate(cluster = gini_v1_ward)
+gini_clustered_v1 <- gini_period1 %>%
+  mutate(cluster = gini_v1_ward) %>%
+  pivot_longer(-c(state_name,state, cluster), names_to = "year", values_to = "gini") 
+```
+
+```{r cluster-1, fig.cap="Cluster Profiles for the 1st Period: Five-cluster Solution", fig.pos="H",fig.height=3.5}
+# Period 1: Plot by Cluster
+gini_clustered_v1 %>%
+  ggplot(aes(x = year, y = gini)) +
+  geom_point() +
+  stat_summary(mapping=aes(x=year,y=gini,group = 1),fun="mean", geom="line", color="red",size = 1) +
+  scale_x_discrete(guide = guide_axis(n.dodge=2)) +
+  ggtitle("Gini Index") +
+  facet_wrap(~cluster)
+```
+
+Figure \ref{fig:cluster-1} visually illustrates the Gini Index for each cluster, along with an average line. Notably, during the Great Depression and WWII era, Delaware, part of cluster five, exhibited significantly higher inequality compared to the others, making it stand out.
+
+Lastly, we assess the robustness of Ward's method against others by calculating the Adjusted Rand Index. Table \ref{tab:rand-1} in the appendix shows that Ward's method exhibits fairly strong robustness compared to alternative methods.
+  
+\newpage   
+
+### Period 2    
+
+```{r clust-2-dendrogram, fig.align='center',fig.cap="Cluster Analysis of the 2nd Period (2007 - 2015)"}
+# Developing the cluster
+## Calculating the distance matrix using euclidean distance
+gini_clust_d2 <- gini_period2 %>% dist(method = 'euclidean')
+
+## Hierarchical clustering with ward's method (squared distances)                  
+gini_clust_v2 <- hclust(gini_clust_d2, method = "ward.D2")
+
+# Plotting the Cluster
+plot(gini_clust_v2, cex = 0.8)
+rect.hclust(gini_clust_v2, k = 5, border = "red")
+```
+
+Figure \ref{fig:clust-2-dendrogram} also portrays a stable five-cluster solution within a tolerance range of 0.18 to 0.3.  
+
+```{r}
+# Store Ward.D2 cluster membership in a new variable.
+gini_v2_ward <- cutree(gini_clust_v2, k = 5)
+
+# Other three methods
+gini_v2_al <- hclust(gini_clust_d2, method = 'average') %>% cutree(k = 5) 
+gini_v2_cm <- hclust(gini_clust_d2, method = 'centroid') %>% cutree(k = 5) 
+gini_v2_cl <- hclust(gini_clust_d2, method = 'complete') %>% cutree(k = 5) 
+```
+
+```{r cluster-2, fig.cap="Cluster Profiles for the 2nd Period: Five-cluster Solution",fig.height=3.5}
+# Assigning the cluster
+gini_period2 <- gini_period2 %>% mutate(cluster = gini_v2_ward)
+
+# Transforming the table into wider format
+gini_clustered_v2 <- gini_period2 %>%
+  pivot_longer(-c(state_name, state, cluster),
+               names_to = "year",
+               values_to = "gini")
+
+# Plotting the cluster profile (with average line)
+gini_clustered_v2 %>%
+  ggplot(aes(x = year, y = gini)) +
+  geom_point() +
+  stat_summary(mapping=aes(x=year,y=gini,group = 1),fun="mean", geom="line", color="red",size = 1) +
+  ggtitle("Gini Index") +
+  facet_wrap(~cluster)
+```
+
+Figure \ref{fig:cluster-2} highlights cluster four as having the highest inequality. Table \ref{tab:gini2-clust4} provides a list of states within this cluster.  
+
+```{r gini2-clust4}
+# Table of Cluster 4
+gini_period2 %>% select(cluster, state_name, c("2007":"2015")) %>%
+  filter(cluster == 4) %>%
+  rename(Cluster = cluster,State = state_name) %>% 
+knitr::kable("simple",
+  booktabs = TRUE, longtable = TRUE, digits=3,
+  caption = "Cluster 4: states with the highest Gini Index", 
+  align = "r") %>%
+  kable_styling(font_size = 5)
+```
+
+Regarding the robustness analysis, as shown in Table \ref{tab:rand-2} in the Appendix, we can conclude that Ward's method is relatively robust compared to other methods. 
+
+\newpage
+
+## Multidimensional Scaling (MDS) 
+
+### Period 1
+
+```{r mds1, fig.cap="MDS by U.S. state for the 1st period (1929 - 1945)"}
+# MDS: Period 1
+d1 <- gini_period1 %>% dplyr::select("1929":"1945") %>% dist(method = 'euclidean')
+
+attributes(d1)$Labels <- gini_period1$state_name
+
+cmds1 <- cmdscale(d1, eig = T) 
+
+df1 <- cmds1$points %>%
+  as.data.frame() %>%
+  rownames_to_column(var = 'state_name')
+
+# Plot MDS by State, with Cluster Membership
+ggplot(df1, aes(x = V1, y = V2, label = `state_name`, color = as.factor(gini_period1$cluster))) +
+  geom_text(size = 2) +
+  scale_color_brewer(type = "div", palette = "Set1",name = "") +
+  labs(x = "Dimension 1", y = "Dimension 2") +
+  guides(color = guide_legend(title = "Cluster")) + 
+  theme(legend.position = "top")
+```
+  
+```{r mds1-line,fig.cap="Gini Index of the outlier states between 1929 and 1945", fig.height=3.7}
+# Side-by-side Line Plots
+common_y_limits <- c(min(min(gini1$gini), min(gini1$gini)), 
+                     max(max(gini1$gini), max(gini1$gini)))
+
+p1 <- ggplot(
+  data = gini1 %>%
+    filter(state_name %in% c("Delaware", "Michigan", "Georgia", "Arkansas", "Mississippi", "Florida")),
+  aes(x = year, y = gini, col = state_name)) +
+  geom_line() +
+  labs(title = "Gini Index for Outliers (1929 - 1945)",
+       x = "Year", y = "Gini Index") +
+  scale_color_discrete(name = NULL) +  
+  guides(color = guide_legend(title = NULL)) +  
+  ylim(common_y_limits) +
+  theme(legend.position = "bottom",aspect.ratio = 2/4)
+
+p2 <- ggplot(
+  data = gini1 %>% 
+    filter(!state_name %in% c("Delaware", "Michigan", "Georgia", "Arkansas",  "Mississippi", "Florida")), 
+  aes(x = year, y = gini, group = state_name), color="grey70") +
+  geom_line() +
+  labs(title = "Gini Index for Non-Outliers (1929 - 1945)",
+       x = "Year", y = "") +
+  guides(color = guide_legend(title = NULL)) +  
+  ylim(common_y_limits) +
+  theme(legend.position = "none",aspect.ratio = 2/4)
+
+p1 + p2 + 
+  plot_layout(ncol = 2, guides = "keep") &
+  theme(legend.position = "bottom")
+```
+  
+Figure \ref{fig:mds1} reveals that states cluster near the center of the plot on both axes, suggesting lower Gini indices during the Great Depression/WWII in comparison to states located further from the center.  
+
+\newpage
+### Period 2
+
+```{r mds2, fig.cap="MDS by U.S. state for the 2nd period (2007 - 2015)" }
+# MDS: Period 2
+d2 <- gini_period2 %>% dplyr::select("2007":"2015") %>% dist(method = 'euclidean')
+
+attributes(d2)$Labels <- gini_period2$state_name
+
+cmds2 <- cmdscale(d2, eig = T) 
+
+df2 <- cmds2$points %>%
+  as.data.frame() %>%
+  rownames_to_column(var = 'state_name')
+
+# Plot MDS by State, with Cluster Membership
+ggplot(df2, aes(x = V1, y = V2, label = `state_name`, color = as.factor(gini_period2$cluster))) +
+  geom_text(size = 2) +
+  scale_color_brewer(type = "div", palette = "Set1",name = "") +
+  labs(x = "Dimension 1", y = "Dimension 2") +
+  guides(color = guide_legend(title = "Cluster")) + 
+  theme(legend.position = "top")
+```
+  
+```{r mds2-line,fig.cap="Gini Index of the outlier states between 2007 and 2015",fig.height=3.5}
+common_y_limits1 <- c(min(min(gini2$gini), min(gini2$gini)), 
+                     max(max(gini2$gini), max(gini2$gini)))
+
+p3 <- ggplot(
+  data = gini2 %>%
+    filter(state_name %in% c("New York", "Florida","Mississippi", "California", "Connecticut", "Nevada")), 
+  aes(x = year, y = gini, col = state_name)) +
+  geom_line() +
+  labs(title = "Gini Index for Outliers (2007-2015)",
+       x = "Year", y = "Gini Index") +
+  scale_color_discrete(name = NULL) +  
+  guides(color = guide_legend(title = NULL)) +  
+  ylim(common_y_limits1)  +
+  theme(legend.position = "bottom",aspect.ratio = 2/4)
+
+p4 <- ggplot(
+  data = gini2 %>%
+    filter(!state_name %in% c("New York", "Florida", "Mississippi", "California", "Connecticut", "Nevada")), 
+  aes(x = year, y = gini, group = state_name), color="grey70") +
+  geom_line() +
+  labs(title = "Gini Index for Outliers (2007-2015)",
+       x = "Year", y = "") +
+  guides(color = guide_legend(title = NULL)) +  
+  ylim(common_y_limits1) +
+  theme(legend.position = "none",aspect.ratio = 2/4)
+
+p3 + p4 + 
+  plot_layout(ncol = 2, guides = "keep") & 
+  theme(legend.position = "bottom")
+```
+
+Figure \ref{fig:mds2} reveals increased state dispersion away from the origin, implying higher income inequality during the GFC compared to the Great Depression/WWII era. In particular, New York, Florida, and Mississippi are outliers, while California, Connecticut, and Nevada cluster near New York's position.   
+
+\newpage
+## Principal Component Analysis (PCA)
+
+### Period 1
+```{r}
+# PCA Period 1
+gini_period1 %>%
+  select_if(., is.numeric) %>% select(-cluster) %>% 
+  scale() %>%
+  prcomp() -> pca1
+
+StateSEPC1 <- augment(pca1, gini_period1)
+```
+
+#### Kaiser's rule
+
+```{r summary-period1}
+data.frame(summary(pca1)$importance)[,1:10] %>% 
+  kable(booktabs = TRUE, longtable = TRUE, digits=4,
+        caption = "Importance of components - 1st Period", 
+        align = "c") %>%
+  kable_styling(font_size = 8) 
+```
+
+According to Table \ref{tab:summary-period1}, following Kaiser's rule, we select 2 principal components (PCs) since both the variance and standard deviation are greater than 1, and the cumulative proportion of variance is 91.12%.   
+
+#### Distance bi-plot $\\$
+
+```{r dbiplot-period1,fig.height=4.5, fig.align='center', fig.cap="Distance Biplot - PCA of the 1st period"}
+rownames(pca1$x) <- use_series(gini_period1, state)
+# PCA Period 1: Distance Biplot (with Cluster Membership)
+fviz_pca_biplot(pca1, geom = "text",
+                habillage = gini_period1$cluster,
+                col.var = "grey30") + 
+  theme(legend.position = "top") +
+  labs(x="PC1",y="PC2")
+```
+
+$\\$
+In Figure \ref{fig:dbiplot-period1}, the years 1937-1939 closely align with PC1, coinciding with the start of WWII. Due to increased military spending, @pellsromer2023 shows a 9% GDP growth from 1933 to 1937 whilst @waiwood2013 notes a 10% drop in unemployment rates. Therefore, PC1 characterises higher GDP and lower unemployment, representing the US's recovery from the Great Depression.
+
+Delaware's (DE) high PC1 values, indicating a strong GDP and employment rate at the start of WWII, are linked to its key role in gunpowder manufacturing and shipyards (@rowe1980). However, this led to increased income inequality as top industry leaders prospered. The influx of migrants for jobs during WWII further widened income disparities due to limited opportunities and lower wages for these migrants. As a result, Delaware had the highest Gini index, with its top earners making two to three times more than their counterparts in other states (@schmitz1983; Figure \ref{fig:mds1-line})
+
+Meanwhile, Idaho (ID) has low PC1 values, indicating low average real GDP and employment rates at the onset of WWII. According to @BID, this is unsurprising given Idaho’s heavy reliance on agriculture and limited industrial capacity in the 1930s. This economic dependence on agriculture, coupled with falling food prices and reduced agricultural income during the Great Depression, likely worsened its income inequality.
+
+Figure \ref{fig:dbiplot-period1} associates high PC2 values with GDP decline and unemployment surge during the Great Depression (1929-1933), while lower PC2 values correspond to economic growth and job increase in WWII's later years (1942-1945). As noted by @duignan2018, US' industrial production fell by nearly 47% between 1929 and 1933, leading to a 30% GDP reduction and unemployment rates peaking at over 20%. In contrast, extensive military production drove up US’ real GDP by 72% from 1940-1945, with unemployment rates falling from 9.5% in 1940 to below 2% from 1943-1945 (@fishback2019).
+
+Mississippi's (MS) low PC2 values reflect the significant economic benefits reaped during WWII. As per @SJ17, income per capita increased substantially by 11%, and urban employment opportunities grew as the farm population decreased by 26%, with many joining the military.  
+
+States such as Tennessee, Alabama, Kansas, Nebraska, Louisiana, and Arkansas experienced lower PC2 values during the 1929-1933 period. These Southern and Midwestern states faced economic difficulties due to widespread poverty and heavy reliance on farming (@davis1978south). Roosevelt's New Deal policies played a pivotal role in revitalising agriculture, stimulating economic growth and creating jobs (@nourse1936fundamental), which aided these regions in recovering from the Great Depression and stabilising income inequality.
+
+#### Correlation bi-plot   
+$\\$
+```{r cbiplot-period1,out.width="50%",fig.align='center', fig.cap="Correlation Biplot - PCA of the 1st period"}
+# rownames(pca2$x)<-use_series(gini_period2,state)
+# biplot(pca2,cex=0.5,xlim=c(-4.6,4),ylim=c(-4,2.2),scale=0)
+knitr::include_graphics(here::here("image/cbiplot-period1.png"))
+```
+  
+Based on Figure \ref{fig:cbiplot-period1}, some years show little correlation. For example, the years 1929 and 1941, as well as 1934 and 1942, have angles close to 90 degrees between them. This lack of correlation is because the Great Depression lasted from 1929 to 1939, while WWII occurred from 1939 to 1945. In contrast, 1929 and 1945 have a strong negative correlation, with an angle close to 180 degrees, as the former marks the start of the Great Depression and the latter the end of WWII. These correlations reflect the distinct historical contexts and economic conditions of these years.  
+
+\newpage
+### Period 2
+
+```{r fittedPC1-period2}
+gini_period2 %>%
+  select_if(., is.numeric) %>% select(-cluster) %>% 
+  scale() %>%
+  prcomp() -> pca2
+
+StateSEPC2<-augment(pca2, gini_period2)
+```
+
+#### Kaiser's rule
+```{r summary-period2}
+data.frame(summary(pca2)$importance) %>% 
+  kable(booktabs = TRUE, longtable = TRUE, digits=4,
+        caption = "Importance of components - 2nd Period", 
+        align = "r") %>%
+  kable_styling(font_size = 8) 
+```
+ 
+  
+According to Table \ref{tab:summary-period2}, we choose two PCs based on Kaiser's rule, as both the variance and standard deviation are greater than 1, and the cumulative proportion of explained variance is 98.54%.  
+
+#### Distance bi-plot $\\$
+
+```{r dbiplot-period2, fig.height=4.5, fig.align='center', fig.cap="Distance Biplot - PCA of the 2nd period"}
+rownames(pca2$x) <- use_series(gini_period2, state)
+
+# PCA Period 2: Distance Biplot (with Cluster Membership)
+fviz_pca_biplot(pca2, geom = c("text"),
+                habillage = as.numeric(gini_period2$cluster),
+                col.var = "grey30") + 
+  theme(legend.position = "top") +
+  labs(x="PC1",y="PC2")
+```
+$\\$
+Figure \ref{fig:dbiplot-period2} displays a distance biplot, highlighting the association between PC2 and the GFC, while PC1 corresponds to the 'recovery period.' According to data from @worldbank2023, the U.S. experienced a GDP decline during the GFC, reflecting the economic downturn characterized by business struggles, reduced consumer spending, and shrinking investments. Subsequent GDP growth indicates a shift away from recession.
+
+The employment rate in the U.S. significantly dropped in the early 2007 period and began a gradual increase (@worldbank2023unemployment). The GFC's global impact exacerbated the situation, with decreased global demand for U.S. exports contributing to rising unemployment. Additionally, a decline in inflation during 2007-2008 (@worldbank2023inflation) can be attributed to the GFC, as economic contraction led to reduced demand, business challenges, and job losses.
+
+The biplot highlights significant income inequality in states like Florida, New York, and Nevada, where affluent individuals tend to cluster in urban areas such as Miami, New York City, and Las Vegas. This concentration of wealth resulted in high Gini Index values during and after the GFC. In Florida and New York, the richest 1% of households accounted for a substantial 61% of the adjusted gross income, as indicated by @cbpp2012.
+
+California and Texas were also heavily affected by the GFC, primarily due to their reliance on manufacturing and construction, as reported by @usbls2010. In contrast, Delaware showed a declining Gini Index during both the GFC and the recovery period. This trend might be attributed to its progressive tax rates, potentially leading to wealthier households migrating out, as suggested by @vuoccolo2018.  
+
+#### Correlation bi-plot  
+$\\$
+```{r cbiplot-period2,out.width="50%",fig.align='center', fig.cap="Correlation Biplot - PCA of the 2nd period"}
+# rownames(pca2$x)<-use_series(gini_period2,state)
+# biplot(pca2,cex=0.5,xlim=c(-4.6,4),ylim=c(-4,2.2),scale=0)
+knitr::include_graphics(here::here("image/cbiplot-period2.png"))
+```
+
+In Figure \ref{fig:cbiplot-period2}, strong positive correlations are observed for specific years, notably 2007 and 2008, reflecting the impact of the GFC. 2011-2015 exhibit similar patterns, likely associated with economic recovery. However, 2009 and 2012 appear uncorrelated, indicating the U.S. transition from recession to growth. Notably, there are no significant negative correlations among the years.
+
+\newpage
+
+# Limitations
+
+Several limitations that surfaced during our analysis include:  
+  
+**Cluster Analysis**   
+  
+- Optimal cluster number determination can be subjective and challenging due to methodological variations.
+- Outliers and data noise can impact cluster quality and sensitivity.
+
+**Multidimensional Scaling (MDS)**   
+  
+- MDS reveals data similarities/differences but does not offer causal explanations for state-specific income inequality patterns.
+- MDS may not capture all nuances in the original data, potentially leading to information loss. To address this, we calculated Goodness of Fit (GOF) values, which were approximately 0.934 in period 1 and 0.985 in period 2 (see Appendix's Table \ref{tab:rand-1}). These indicate varying degrees of alignment between MDS plots and the original data, with period 2 showing a higher degree of accuracy.
+
+
+**Principal Component Analysis** 
+  
+Interpreting PCA results can be challenging without sufficient domain knowledge. To address this, we conducted extensive research on relevant historical events to provide context and support our interpretation of the PCA findings.
+
+\newpage
+
+# Conclusion
+
+Our analysis of income inequality during the Great Depression, WWII, and the GFC revealed significant findings:
+
+**The Great Depression/WWII**   
+  
+- A five-cluster approach effectively groups states for detailed analysis.
+- States closer to the center in our MDS analysis show lower income inequality during these periods.
+- PC1 reflects higher GDP and lower unemployment, indicating recovery from the Great Depression.
+- PC2 strongly correlates with economic conditions during these events.  
+ 
+
+**The Global Financial Crisis (GFC)**    
+    
+- A five-cluster solution is again useful for meaningful groupings.  
+- States shifted away from the center in our MDS analysis, indicating increased income inequality overall compared to the previous era.
+- PC1 aligns with the GFC recovery period (2009–2015), while PC2 relates to the GFC itself (2007 - 2008), reflecting changes in US' GDP.
+
+
+In summary, our analysis provided valuable insights into income inequality during critical historical events. To enhance our understanding, we recommend incorporating Factor Models and additional economic indicators. This will help us better interpret the complex economic dynamics shaped by these significant events.
+
+
+\newpage
+
+# Appendix
+
+## Appendix 1: Analysis
+
+```{r}
+# Summary Statistics by Year
+ss1 <- gini %>% 
+  filter(state != "US") %>% 
+  dplyr::select(year, gini) %>% 
+  group_by(year) %>% 
+  summarise(min = min(gini),
+            q1 = quantile(gini,0.25),
+            med = median(gini),
+            q3 = quantile(gini,0.75),
+            max = max(gini)) 
+
+ss1 %>% 
+  kable(booktabs = TRUE, longtable = TRUE, digits=3,
+        caption = "Summary by Year", align = "c",
+        col.names = c("Year","Min","1st Qu.","Median","3rd Qu.","Max")) %>%
+  kable_styling(font_size = 8) 
+```
+
+### Cluster Analysis  
+
+```{r rand-1}
+#fig.subcap="Adjusted Rand Index: Ward's vs. other three methods"
+# Clustering Period 1 > Adjusted Rand Index
+rand_1 <- data.frame(adjustedRandIndex(gini_v1_ward, gini_v1_al),
+           adjustedRandIndex(gini_v1_ward, gini_v1_cm),
+           adjustedRandIndex(gini_v1_ward, gini_v1_cl)) 
+colnames(rand_1) <- c("Average Linkage","Centroid","Complete Linkage")
+rownames(rand_1) <- c("Ward's Method")
+
+rand_1 %>% 
+  kable(booktabs = TRUE, longtable = TRUE, digits=3,
+        caption = "Evaluating the robustness of the model - 1st Period", 
+        align = "r") %>%
+  kable_styling(font_size = 10) 
+```
+
+```{r rand-2, fig.subcap="Adjusted Rand Index: Ward's vs. other three methods"}
+# Clustering Period 1 > Adjusted Rand Index
+rand_2 <- data.frame(adjustedRandIndex(gini_v2_ward, gini_v2_al),
+           adjustedRandIndex(gini_v2_ward, gini_v2_cm),
+           adjustedRandIndex(gini_v2_ward, gini_v2_cl)) 
+colnames(rand_2) <- c("Average Linkage","Centroid","Complete Linkage")
+rownames(rand_2) <- c("Ward's Method")
+
+rand_2 %>% 
+  kable(booktabs = TRUE, longtable = TRUE, digits=3,
+        caption = "Evaluating the robustness of the model - 2st Period", 
+        align = "r") %>%
+  kable_styling(font_size = 10) 
+```
+
+```{r include=F}
+# Clustering Period 1: Average Gini by Cluster
+gini_clustered_v1 %>%
+  group_by(cluster) %>%
+  summarise(avg = mean(gini))
+```
+  
+### MDS
+
+```{r mds-gof}
+# fig.cap="MDS Goodness of Fit"
+tibble(Period=c("1st","2nd"),
+       GOF1=c(cmds1$GOF[1], cmds2$GOF[1]),
+       GOF2=c(cmds1$GOF[2], cmds2$GOF[2])) %>% 
+knitr::kable("simple",
+  booktabs = TRUE, longtable = TRUE, digits=4,
+  caption = "MDS Goodness of Fit", 
+  align = "r") %>%
+  kable_styling(font_size = 4)
+```
+
+### PCA  
+
+**Scree plot**  
+  
+```{r screeplot-period1, figures-side, fig.show="hold", out.width="49%"}
+screeplot(pca1,type="lines")
+screeplot(pca2,type="lines")
+```
+  
+The Scree plot of both periods show that the "elbow point" is in the third point. These three point is sufficient for dimensionality reduction.  
+
+**Weights of the first two PCs**  
+
+**1st Period**  
+
+```{r weights-period1}
+pca1$rotation[,1:2] %>% 
+  kable(booktabs = TRUE, longtable = TRUE, digits=4,
+        caption = "Weights of the first two PCs - 1st Period", 
+        align = "r") %>%
+  kable_styling(font_size = 10) 
+```
+  
+Based on Table \ref{tab:weights-period1}, in 1937, PC1's high weight suggests a strong link between that year and PC1. PC2's high weight for 1929 indicates a strong connection between 1929 and PC2. The Great Depression, starting in 1929, had a significant impact on 1937, likely due to enduring economic hardships, including high unemployment and income disparities. From 1939 to 1945, PC2 consistently had negative values, implying reduced income inequality in other years, likely driven by increased job opportunities and higher incomes during WWII (1939-1945).
+
+**2nd Period**  
+```{r weights-period2}
+pca2$rotation[,1:2] %>% 
+  kable(booktabs = TRUE, longtable = TRUE, digits=4,
+        caption = "Weights of the first two PCs - 2nd Period", 
+        align = "r") %>%
+  kable_styling(font_size = 10) 
+```
+  
+Based on Table \ref{tab:weights-period2}, negative PC1 values imply decreased income inequality, particularly during the GFC, while positive PC1 values highlight the significant impact of the crisis on income disparities. The shift from negative PC2 values (2007-2009) to positive (2010-2015) suggests changing income inequality patterns, possibly influenced by the Great Recession and subsequent economic factors.  
+
+\newpage
+## Appendix 2: Code  
+  
+**Data Cleaning & Preliminary Analysis**  
+\tiny  
+```{r echo=T, eval=F}
+# DATA CLEANING ------------------------------------
+# Get Data
+gd <- read_csv(here::here("data/Inequality_GD.csv"))
+gr <- read_csv(here::here("data/Inequality_GR.csv"))
+
+# Bind two raw datasets
+gini <- rbind(
+  gd %>%  dplyr::select(-"...1") %>% 
+    pivot_longer(-State, names_to = "year", values_to = "gini"),
+  gr %>% dplyr::select(-"...1")%>% 
+    pivot_longer(-State, names_to = "year", values_to = "gini")  
+) %>% 
+  rename("state_name" = "State") %>% 
+  mutate(year = as.numeric(year))
+
+# Add state abbreviation
+state <- tibble(state_name = c(unique(gini$state_name)))
+state_abb <- data.frame(state_name = state.name, state = state.abb)
+state <- left_join(state, state_abb, by = c("state_name" = "state_name")) 
+state <- state %>% 
+  mutate(state = case_when(
+    state_name == "United States" ~ "US",
+    state_name == "District of Columbia" ~ "DC",
+    TRUE ~ state))
+gini <- left_join(gini, state, by = c("state_name" = "state_name"))
+
+# Get updated dataset from research website
+updated <- read_csv(here::here("data/Frank_Gini_2018.csv")) %>% 
+  dplyr::select(State,Year,Gini) %>% 
+  rename_all(tolower) %>% 
+  rename(state_name = state, gini_updated = gini) 
+
+# Handle Outlier and Missing Values
+gini <- gini %>% 
+  left_join(., updated, by = c("year"="year","state_name"="state_name")) %>% 
+  mutate(gini = case_when(
+    state_name=="Oregon" & year==1934 ~ gini_updated, # Outlier
+    is.na(gini) ~ gini_updated,                       # Missing Values
+    TRUE ~ gini)) %>% 
+  dplyr::select(1:4)
+
+# DATA WRANGLING ------------------------------------
+## Subset data
+gini1 <- gini %>%
+  select(state_name, state, year, gini) %>%
+  filter(year %in% 1929:1945,
+         state_name != "United States")
+gini2 <- gini %>%
+  select(state_name, state, year, gini) %>%
+  filter(year %in% 2007:2015,
+         state_name != "United States")
+
+## Transforming the table into wide format
+gini_period1 <- gini %>%
+  select(state_name, state, year, gini) %>%
+  filter(year %in% 1929:1945,
+         state_name != "United States") %>%
+  pivot_wider(names_from = year,
+              values_from = gini)
+
+gini_period2 <- gini %>%
+  select(state_name, state, year, gini) %>%
+  filter(year %in% 2007:2015,
+         state_name != "United States") %>%
+  pivot_wider(names_from = year,
+              values_from = gini)
+
+# Assigning first column as the rownames (for visual purpose)
+rownames(gini_period1) <- gini_period1$state_name
+rownames(gini_period2) <- gini_period2$state_name
+```
+  
+```{r echo=T, eval=F}
+# Box Plot: Distribution of Gini Index over the year
+gini %>% 
+  filter(state != "US") %>%  
+  ggplot(aes(x = year)) + 
+  geom_boxplot(aes(y = gini, group = year)) +
+  geom_line(data = gini %>% filter(state == "US"), 
+            aes(y = gini, group = 1), 
+            color = "darkred", size = 1.2, alpha = 0.4) +
+  scale_x_break(c(1945,2007)) + 
+  theme(axis.title = element_text(size = 8), 
+        legend.position = "top") +
+  theme_light() +
+  labs(x = "Year", y = "Gini Index") 
+```
+  
+```{r echo=T, eval=F}
+# Choropleth Map: Gini Index across U.S. states over time
+df <- gini %>% 
+  select(state, year, gini) %>% filter(state != "US") %>% 
+  mutate(gini_cut = cut(gini,breaks = c(0.1,0.2,0.3,0.4,0.5,0.6,0.7,0.8,0.9)))
+
+# Map Plot: Gini Index across states over time 
+plot_usmap(data = df, values = "gini_cut", color = "grey90") + 
+  scale_fill_brewer(palette = "Reds", drop = FALSE, name = "Gini Index") + 
+  theme(legend.position = "bottom", aspect.ratio = 5.5/9) + 
+  facet_wrap(~year, ncol=7) + 
+  guides(fill=guide_legend(nrow = 1)) +
+  labs(subtitle = "Increasing income inequality")
+```
+$\\$
+\normalsize
+**Cluster Analysis**  
+\tiny
+```{r echo=T, eval=F}
+# CLUSTER ANALYSIS 1  ------------------------------------
+## Calculating the distance matrix using euclidean distance
+gini_clust_d1 <- gini_period1 %>%
+  dist(method = 'euclidean')
+## Hierarchical clustering 
+gini_clust_v1 <- hclust(gini_clust_d1, method = "ward.D2")
+# Plotting the Cluster Dendrogram
+plot(gini_clust_v1, cex = 0.8)
+rect.hclust(gini_clust_v1, k = 5, border = "red")
+# Store Ward.D2 cluster membership in a new variable.
+gini_v1_ward <- cutree(gini_clust_v1, k = 5)
+# Other cluster methods
+gini_v1_al <- hclust(gini_clust_d1, method = 'average') %>% cutree(k = 5)   
+gini_v1_cm <- hclust(gini_clust_d1, method = 'centroid') %>% cutree(k = 5)   
+gini_v1_cl <- hclust(gini_clust_d1, method = 'complete') %>% cutree(k = 5) 
+# Map cluster membership to dataset
+gini_period1 <- gini_period1 %>% mutate(cluster = gini_v1_ward)
+gini_clustered_v1 <- gini_period1 %>%
+  mutate(cluster = gini_v1_ward) %>%
+  pivot_longer(-c(state_name,state, cluster),names_to = "year",values_to = "gini")
+# Period 1: Plot by Cluster
+gini_clustered_v1 %>%
+  ggplot(aes(x = year, y = gini)) +
+  geom_point() +
+  stat_summary(mapping=aes(x=year,y=gini,group = 1),fun="mean", geom="line", color="red",size = 1) +
+  ggtitle("Gini Index") +
+  facet_wrap(~cluster)
+```
+  
+```{r echo=T, eval=F}
+# CLUSTER ANALYSIS 2  ------------------------------------
+## Calculating the distance matrix using euclidean distance
+gini_clust_d2 <- gini_period2 %>% dist(method = 'euclidean')
+## Hierarchical clustering 
+gini_clust_v2 <- hclust(gini_clust_d2, method = "ward.D2")
+# Plotting the Cluster
+plot(gini_clust_v2, cex = 0.8)
+rect.hclust(gini_clust_v2, k = 5, border = "red")
+# Store Ward.D2 cluster membership in a new variable.
+gini_v2_ward <- cutree(gini_clust_v2, k = 5)
+# Other three methods
+gini_v2_al <- hclust(gini_clust_d2, method = 'average') %>% cutree(k = 5) 
+gini_v2_cm <- hclust(gini_clust_d2, method = 'centroid') %>% cutree(k = 5) 
+gini_v2_cl <- hclust(gini_clust_d2, method = 'complete') %>% cutree(k = 5) 
+# Assigning the cluster
+gini_period2 <- gini_period2 %>% mutate(cluster = gini_v2_ward)
+gini_clustered_v2 <- gini_period2 %>%
+  pivot_longer(-c(state_name, state, cluster), names_to = "year", values_to = "gini")
+# Plotting the cluster profile (with average line)
+gini_clustered_v2 %>%
+  ggplot(aes(x = year, y = gini)) +
+  geom_point() +
+  stat_summary(mapping=aes(x=year,y=gini,group = 1),fun="mean", geom="line", color="red",size = 1) +
+  ggtitle("Gini Index") +
+  facet_wrap(~cluster)
+```
+$\\$
+\normalsize
+**MDS**  
+\tiny
+```{r echo=T, eval=F}
+### MDS 1  ------------------------------------
+d1 <- gini_period1 %>% dplyr::select("1929":"1945") %>% dist(method = 'euclidean')
+attributes(d1)$Labels <- gini_period1$state_name
+cmds1 <- cmdscale(d1, eig = T) 
+df1 <- cmds1$points %>%
+  as.data.frame() %>%
+  rownames_to_column(var = 'state_name')
+## Plot MDS 1 by State, with Cluster Membership
+ggplot(df1, aes(x = V1, y = V2, label = `state_name`, color = as.factor(gini_period1$cluster))) +
+  geom_text(size = 2) +
+  scale_color_brewer(type = "div", palette = "Set1",name = "") +
+  labs(x = "Dimension 1", y = "Dimension 2") +
+  guides(color = guide_legend(title = "Cluster")) + 
+  theme(legend.position = "top")
+## Side-by-side Line Plots
+common_y_limits <- c(min(min(gini1$gini), min(gini1$gini)), 
+                     max(max(gini1$gini), max(gini1$gini)))
+
+p1 <- ggplot(
+  data = gini1 %>%
+    filter(state_name %in% c("Delaware", "Michigan", "Georgia", "Arkansas", "Mississippi", "Florida")),
+  aes(x = year, y = gini, col = state_name)) +
+  geom_line() +
+  labs(title = "Gini Index for Outliers (1929 - 1945)",
+       x = "Year", y = "Gini Index") +
+  scale_color_discrete(name = NULL) +  
+  guides(color = guide_legend(title = NULL)) +  
+  ylim(common_y_limits) +
+  theme(legend.position = "bottom",aspect.ratio = 2/4)
+
+p2 <- ggplot(
+  data = gini1 %>% 
+    filter(!state_name %in% c("Delaware", "Michigan", "Georgia", "Arkansas",  "Mississippi", "Florida")), 
+  aes(x = year, y = gini, group = state_name), color="grey70") +
+  geom_line() +
+  labs(title = "Gini Index for Non-Outliers (1929 - 1945)",
+       x = "Year", y = "") +
+  guides(color = guide_legend(title = NULL)) +  
+  ylim(common_y_limits) +
+  theme(legend.position = "none",aspect.ratio = 2/4)
+
+p1 + p2 + 
+  plot_layout(ncol = 2, guides = "keep") &
+  theme(legend.position = "bottom")
+```
+  
+```{r echo=T, eval=F}
+# MDS 2  ------------------------------------
+d2 <- gini_period2 %>% dplyr::select("2007":"2015") %>% dist(method = 'euclidean')
+attributes(d2)$Labels <- gini_period2$state_name
+cmds2 <- cmdscale(d2, eig = T) 
+df2 <- cmds2$points %>%
+  as.data.frame() %>%
+  rownames_to_column(var = 'state_name')
+
+## Plot MDS by State, with Cluster Membership
+ggplot(df2, aes(x = V1, y = V2, label = `state_name`, color = as.factor(gini_period2$cluster))) +
+  geom_text(size = 2) +
+  scale_color_brewer(type = "div", palette = "Set1",name = "") +
+  labs(x = "Dimension 1", y = "Dimension 2") +
+  guides(color = guide_legend(title = "Cluster")) + 
+  theme(legend.position = "top")
+
+## Side-by-side Line Plots
+common_y_limits1 <- c(min(min(gini2$gini), min(gini2$gini)), 
+                     max(max(gini2$gini), max(gini2$gini)))
+
+p3 <- ggplot(
+  data = gini2 %>%
+    filter(state_name %in% c("New York", "Florida","Mississippi", "California", "Connecticut", "Nevada")), 
+  aes(x = year, y = gini, col = state_name)) +
+  geom_line() +
+  labs(title = "Gini Index for Outliers (2007-2015)",
+       x = "Year", y = "Gini Index") +
+  scale_color_discrete(name = NULL) +  
+  guides(color = guide_legend(title = NULL)) +  
+  ylim(common_y_limits1)  +
+  theme(legend.position = "bottom",aspect.ratio = 2/4)
+
+p4 <- ggplot(
+  data = gini2 %>%
+    filter(!state_name %in% c("New York", "Florida", "Mississippi", "California", "Connecticut", "Nevada")), 
+  aes(x = year, y = gini, group = state_name), color="grey70") +
+  geom_line() +
+  labs(title = "Gini Index for Outliers (2007-2015)",
+       x = "Year", y = "") +
+  guides(color = guide_legend(title = NULL)) +  
+  ylim(common_y_limits1) +
+  theme(legend.position = "none",aspect.ratio = 2/4)
+
+p3 + p4 + 
+  plot_layout(ncol = 2, guides = "keep") & 
+  theme(legend.position = "bottom")
+```
+$\\$
+\normalsize
+**PCA**  
+\tiny
+```{r echo=T, eval=F}
+# PCA 1  ------------------------------------
+gini_period1 %>%
+  select_if(., is.numeric) %>% select(-cluster) %>% 
+  scale() %>%
+  prcomp() -> pca1
+StateSEPC1 <- augment(pca1, gini_period1)
+## Kaiser's rule
+data.frame(summary(pca1)$importance)[,1:10] %>% 
+  kable(booktabs = TRUE, longtable = TRUE, digits=4,
+        caption = "Importance of components - 1st Period", 
+        align = "c") %>%
+  kable_styling(font_size = 8) 
+## PCA Period 1: Distance Biplot (with Cluster Membership)
+fviz_pca_biplot(pca1, geom = "text",
+                habillage = gini_period1$cluster,
+                col.var = "grey30",
+                title = "Distance Biplot - PCA Period 1") + 
+  theme(legend.position = "top") +
+  labs(x="PC1",y="PC2")
+## Correlation Biplot
+rownames(pca1$x) <- use_series(gini_period1, state)
+biplot(pca1, cex = 0.6, xlim = c(-4.5, 3), ylim = c(-4, 4), scale = 0)
+```
+  
+```{r echo=T, eval=F}
+# PCA 2  ------------------------------------
+gini_period2 %>%
+  select_if(., is.numeric) %>% select(-cluster) %>% 
+  scale() %>%
+  prcomp() -> pca2
+StateSEPC2<-augment(pca2, gini_period2)
+## Kaiser's rule
+data.frame(summary(pca2)$importance) %>% 
+  kable(booktabs = TRUE, longtable = TRUE, digits=4,
+        caption = "Importance of components - 2nd Period", 
+        align = "r") %>%
+  kable_styling(font_size = 8) 
+
+rownames(pca2$x) <- use_series(gini_period2, state)
+## Distance Biplot (with Cluster Membership)
+fviz_pca_biplot(pca2, geom = c("text"),
+                habillage = as.numeric(gini_period2$cluster),
+                col.var = "grey30",
+                title = "Distance Biplot - PCA Period 2") + 
+  theme(legend.position = "top") +
+  labs(x="PC1",y="PC2")
+## Correlation Biplot
+rownames(pca2$x)<-use_series(gini_period2,state)
+biplot(pca2,cex=0.5,xlim=c(-4.6,4),ylim=c(-4,2.2),scale=0)
+```
+\normalsize
+\newpage
+
+

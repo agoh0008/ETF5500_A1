@@ -1,0 +1,302 @@
+---
+title: "report"
+output: html_document
+date: "2023-08-29"
+---
+
+```{r}
+library(tidyverse)
+library(usmap)
+library(broom)
+library(statebins)
+theme_set(theme_bw())
+```
+
+# Introduction (Anh)  
+
+Data description  
+
+# Preliminary Analysis (Anh)  
+
+```{r}
+gd <- read_csv(here::here("data/Inequality_GD.csv"))
+gr <- read_csv(here::here("data/Inequality_GR.csv"))
+
+# Bind two raw datasets
+gini <- rbind(
+  gd %>% 
+  dplyr::select(-"...1")%>% 
+  pivot_longer(-State, names_to = "year", values_to = "gini"),
+  gr %>% 
+  dplyr::select(-"...1")%>% 
+  pivot_longer(-State, names_to = "year", values_to = "gini")  
+) %>% 
+  rename("state_name" = "State") %>% 
+  filter(state_name != "United States") # exclude index of the whole US
+
+
+# State abbreviation
+state <- tibble(state_name = c(unique(gini$state_name))) 
+state <- state %>%
+  mutate(state = case_when(
+    state == "District of Columbia" ~ "DC",
+    TRUE ~ state.abb[match(state$state_name, state.name)]))
+
+# Add state abbreviation
+gini <- left_join(gini, state, by = c("state_name" = "state_name"))
+```
+  
+**Data Cleaning**  
+- One outlier: Oregon 1934 -> Gini Index = 1000 -> replace with the correct value of `0.3860784471035` from data source website  
+Update on Other Measures of Income Inequality (Atkinson Index, Gini Coefficient, Relative Mean Deviation, Theil Index), 1917-2015
+https://www.shsu.edu/eco_mwf/inequality.html
+
+```{r}
+# Outlier -> fixed
+gini <- gini %>% 
+  mutate(gini = case_when(state_name=="Oregon" & year==1934 ~ 0.3860784471035,
+                          TRUE ~ gini))
+# Missing values 
+gini %>% filter(is.na(gini))
+
+# Box Plot
+gini %>% 
+  ggplot(aes(x=year,y=gini)) + 
+  geom_boxplot() + 
+  labs(title = "Distribution of Gini Index over the year")
+```
+
+```{r}
+# Which state rank 1st each year? 
+View(gini %>% group_by(year) %>% 
+  mutate(rank = rank(desc(gini))) %>% 
+  filter(rank==1))
+```
+
+
+```{r}
+df <- gini %>% 
+  select(state, year, gini) %>% filter(state != "US") %>% 
+  mutate(gini_cut = cut(gini,breaks = c(0.1,0.2,0.3,0.4,0.5,0.6,0.7,0.8,0.9)))
+
+# Map Plot: Gini Index across states over time 
+plot_usmap(data = df, values = "gini_cut", color = "grey90") + 
+  scale_fill_brewer(palette = "Reds", drop = FALSE, name = "Gini Index") + 
+  theme(legend.position = "right") + 
+  facet_wrap(~year, ncol=6) + 
+  labs(title = "Gini Index across U.S. states over time",
+       subtitle = "Increasing income inequality")
+```
+
+# Analysis  
+
+## Assumptions (All)
+
+## Period between 1929 and 1945 (Great Depression & World War II) (Evan)  
+
+## Period between 2007 and 2015 (Global Financial Crisis) (Alex)  
+
+## Overall (Pei Ni)  
+
+### Principal Components Analysis  
+
+```{r}
+pca <- gini %>% 
+  pivot_wider(names_from = year, values_from = gini) %>% 
+  column_to_rownames('state_name') %>% 
+  select_if(is.numeric) %>% 
+  na.omit() %>% 
+  prcomp() 
+
+summary(pca)
+```
+> 90% of total variance is explained by the first three PCs.
+  
+```{r}
+screeplot(pca,type="lines")
+```
+
+> Scree plot suggests using PCs.  
+
+```{r}
+# Distance Biplot
+biplot(pca,cex=0.7)
+# Correlation Biplot
+biplot(pca, scale=0, cex=0.7) 
+```
+  
+```{r}
+# Line plot
+gini %>% 
+  filter(state %in% c("ID","NY","FL")) %>% 
+  ggplot(aes(x = year, y = gini, group = state, color = state)) +
+  geom_line(size=1) + 
+  labs(title = "Gini Index over time")
+```
+
+### Clustering  
+  
+```{r}
+# Compute distance matrix
+d <- gini %>% 
+  pivot_wider(names_from = year, values_from = gini) %>% 
+  column_to_rownames(var = "state_name") %>% 
+  na.omit() %>% 
+  dist(method = "euclidean")
+  
+# Hierarchical clustering using Ward's
+hcl <- hclust(d, method = "ward.D2")
+
+k <- 5 # Number of clusters
+
+# Cluster Dendrogram
+plot(hcl, cex=0.8)
+rect.hclust(hcl, k = k)
+
+# cut into clusters, get cluster ID
+clust <- as.data.frame(as.factor(cutree(hcl, k)), col.names = "clust") %>% 
+  rename(clusters = 'as.factor(cutree(hcl, k))') %>%
+  rownames_to_column(var = "state_name")
+
+# Cluster ID
+gini_clust <- left_join(
+  gini, 
+  clust, 
+  by = c("state_name"="state_name"))
+  
+# Line Plot by Cluster ID
+gini_clust %>% 
+  ggplot(aes(x = year, y = gini, group = state)) +
+  geom_line(size=1) +
+  theme(aspect.ratio = 9/16) + 
+  facet_wrap(~clusters, nrow=1) +
+  labs(title = "Gini Index over time")
+```
+    
+```{r}
+# Map Plot: Clustering (Option 1)
+plot_usmap(data = gini_clust, values = "clusters") +
+  scale_fill_manual(values=c("lightblue", "red", "navy"), name = "Cluster") + 
+  theme(legend.position = "right",
+        plot.title = element_text(size=22)) + 
+  labs(title = "Clusters",
+       subtitle = "")
+
+# Map Plot: Clustering (Option 2)
+ggplot(gini_clust) +
+  geom_statebins(aes(fill = clusters, state = state)) +
+  coord_equal() +
+  scale_fill_manual(values=c("lightblue", "red", "navy","green","black"), name = "Cluster") +
+  theme_statebins() + 
+  theme(legend.position = "right",
+        plot.title = element_text(size=22)) + 
+  labs(title = "Clusters")
+```
+  
+
+# Analysis Limitations (All)   
+
+# Conclusion (All)   
+
+# Appendix   
+
+# References   
+
+---
+
+# Archive PCA
+
+## Period 1
+
+```{r fittedPC1-period1}
+gini_period1 %>%
+  select_if(., is.numeric) %>%
+  scale() %>%
+  prcomp() -> pca1
+
+StateSEPC1<-augment(pca1, gini_period1)
+
+kable(head(StateSEPC1) %>% select(state,.fittedPC1),digit=4)
+```
+Figure \@ref(tab:fittedPC1-period1) showed PC1, first principal component which explain the largest possible variance. Connecticut, CT, has the largest PC while Alabama, AL, has the smallest PC.
+
+#### Scatter plot of PC1 vs PC2
+```{r scatterplot-period1,echo=TRUE, fig.align='center',out.width="100%",out.height="80%"}
+ggplot(StateSEPC1,aes(x=.fittedPC1,y=.fittedPC2, label=state, text=state))+
+  geom_text(size=4)+theme(text= element_text(size=14))
+```
+According to \@ref(fig:scatterplot-period1), it suggests that California, CA and New Jersey, NJ and Ohio, OH seems to be a cluster. Another cluster is within District of Columbia, DC, Iowa, IA and Vermont, VT. Delaware, DE is an outlier. 
+
+## Period 2 
+```{r}
+kable(head(StateSEPC2) %>% select(state,.fittedPC1),digit=4)
+```
+
+Figure \@ref(tab:fittedPC1-period2) illustrates PC1, first principal component, explain the largest possible variance. Alaska, AK, has the largest PC while California, CA, has the smallest PC.
+
+#### Scatter plot of PC1 vs PC2
+```{r scatterplot-period2,echo=TRUE, fig.align='center',out.width="100%",out.height="80%"}
+ggplot(StateSEPC2,aes(x=.fittedPC1,y=.fittedPC2, label=state, text=state))+
+  geom_text(size=4)+theme(text= element_text(size=14))
+```
+According to \@ref(fig:scatterplot-period2), NY, FL and MS are considered as outliers. There is a cluster within ND, OR and NE. NV and CT are closely related to one another as well. 
+
+## Overall (All Years)
+```{r fittedPC1-merged}
+merged_data <- merge(period1_wide, period2_wide, by = c("state_name","state"), all = TRUE)
+
+merged_data <- merged_data[!(merged_data$state_name %in% c("Alaska", "Hawaii")), ]
+
+merged_data %>%
+  select_if(., is.numeric) %>%
+  scale() %>%
+  prcomp() -> pca_merged
+
+StateSEPC_merged<-augment(pca_merged, merged_data)
+
+kable(head(StateSEPC_merged) %>% select(state,.fittedPC1),digit=4)
+```
+Figure \@ref(tab:fittedPC1-merged) illustrates PC1, first principal component, explain the largest possible variance. Connecticut, CT, has the largest PC while Alabama, AL, has the smallest PC.
+
+### Scatter plot of PC1 vs PC2
+```{r scatterplot-merged,echo=TRUE, fig.align='center',out.width="100%",out.height="80%"}
+ggplot(StateSEPC_merged,aes(x=.fittedPC1,y=.fittedPC2, label=state, text=state))+
+  geom_text(size=4)+theme(text= element_text(size=14))
+```
+According to \@ref(fig:scatterplot-merged), KY and VA are close to each other. SC, KS, MI and AL are another cluster. DE is the only outlier in this plotter graph. 
+
+### Weights of the first two PCs:
+
+```{r weights-merged,echo=TRUE }
+kable(pca_merged$rotation[,1:2],digits=3)
+```
+Based on \@ref(tab:weights-merged), the negative PC1 values in 2007 and 2008 coincide with the start of the Global Financial Crisis, suggesting a potential link between the crisis and increased income inequality. Negative PC2 values during 1941-1944 and 2007-2015 signify reduced income inequality, while positive values in 1929-1940 and 1945 suggest income disparities among states.
+
+### Distance bi-plot:
+
+```{r dbiplot-merged,echo=TRUE, out.width="90%"}
+rownames(pca_merged$x)<-use_series(merged_data,state)
+biplot(pca_merged,cex=0.7,xlim=c(-0.3,0.4))
+```
+According to \@ref(fig:dbiplot-merged), Florida, FL and New York, NY are outliers. Kentucky, KY and Virginia, VA are one of the cluster. 
+
+### Correlation bi-plot:
+
+```{r cbiplot-merged,echo=TRUE,out.width="90%"}
+rownames(pca_merged$x)<-use_series(merged_data,state)
+biplot(pca_merged,cex=0.6,xlim=c(-5,5.5),ylim=c(-7,4),scale=0)
+```
+According to \@ref(fig:cbiplot-merged), 1900s and 2000s are uncorrelated. Both of them are all in 90 degree angle. However, within 1900s are all clustered together and within 2000s are all clustered together. Each of them are highly positively correlated since the angle is close to zero.
+
+
+### Kaiser's rule
+```{r summary-merged}
+summary(pca_merged)
+```
+According to \@ref(tab:summary-merged), by Kaisers rule select 19 PCs since variance and standard deviation greater than 1.
+
+### Scree plot:
+```{r screeplot-merged,echo=TRUE,eval=TRUE,out.width="90%",out.height="80%"}
+screeplot(pca_merged,type="lines")
+```
+\@ref(fig:screeplot-merged) shows that the "elbow point" is in the fourth point. These four points are sufficient for dimensionality reduction.
