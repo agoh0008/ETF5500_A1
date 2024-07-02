@@ -1,12 +1,17 @@
-# ETF5500 HDDA Group Assignment 
+# ETF5500: Assignment 1 - Principal Component Analysis on U.S. Gini Index
 
-### Due date 
-Friday, 22 September 2023, 4:30 PM 
+This repository contains the work and materials for Assignment 1 of the ETF5500 unit (High Dimensional Data Analysis).
 
-### Member
+## Overview
+
+This report delves into the Gini Index, a critical indicator of income inequality, covering all 52 U.S. states. Our analysis primarily employs Principal Component Analysis (PCA) to reduce the dimensionality of the dataset. Additionally, we explore cluster analysis and Multidimensional Scaling (MDS) to provide further insights into the patterns and relationships within the data. 
+
+The goal is to uncover underlying structures and simplify the complexity inherent in the income inequality data.
+
+### Authors:
 :space_invader: Evan Ginting  
 :space_invader: Alexandra Goh  
-:space_invader: Pei Lim  
+:space_invader: Pei Ni Lim  
 :space_invader: Huyen-Anh Pham  
 
 ### Project structure  
